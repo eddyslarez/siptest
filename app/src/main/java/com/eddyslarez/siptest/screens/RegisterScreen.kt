@@ -24,9 +24,9 @@ fun RegisterScreen(
     val registrationState by sipViewModel.registrationState.collectAsState()
     val permissionsGranted by sipViewModel.permissionsGranted.collectAsState()
 
-    var username by remember { mutableStateOf("90544007") }
-    var password by remember { mutableStateOf("GK94phwuNoUz30Eq") }
-    var domain by remember { mutableStateOf("sip.spb.mcn.ru") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var domain by remember { mutableStateOf("") }
     var pushToken by remember { mutableStateOf("test") }
     var showPassword by remember { mutableStateOf(false) }
 

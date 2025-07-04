@@ -1,5 +1,6 @@
 package com.eddyslarez.siptest.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -34,99 +35,132 @@ class SipViewModel(
         // Listener principal para eventos SIP
         sipLibrary.addSipEventListener(object : EddysSipLibrary.SipEventListener {
             override fun onRegistrationStateChanged(state: RegistrationState, username: String, domain: String) {
-                _uiState.update { it.copy(
-                    registrationMessage = "Registration: ${state.name}",
-                    isRegistered = state == RegistrationState.OK
-                )}
+                Log.d("SipListener", "onRegistrationStateChanged: $username@$domain -> ${state.name}")
+                _uiState.update {
+                    it.copy(
+                        registrationMessage = "Registration: ${state.name}",
+                        isRegistered = state == RegistrationState.OK
+                    )
+                }
             }
 
             override fun onCallStateChanged(state: CallState, callInfo: EddysSipLibrary.CallInfo?) {
-                _uiState.update { it.copy(
-                    callMessage = "Call: ${state.name}",
-                    currentCall = callInfo
-                )}
+                Log.d("SipListener", "onCallStateChanged: ${state.name}, callInfo: $callInfo")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Call: ${state.name}",
+                        currentCall = callInfo
+                    )
+                }
             }
 
             override fun onIncomingCall(callInfo: EddysSipLibrary.IncomingCallInfo) {
-                _uiState.update { it.copy(
-                    callMessage = "Incoming call from ${callInfo.callerNumber}",
-                    incomingCall = callInfo
-                )}
+                Log.d("SipListener", "onIncomingCall from: ${callInfo.callerNumber}")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Incoming call from ${callInfo.callerNumber}",
+                        incomingCall = callInfo
+                    )
+                }
             }
 
             override fun onCallConnected(callInfo: EddysSipLibrary.CallInfo) {
-                _uiState.update { it.copy(
-                    callMessage = "Call connected with ${callInfo.phoneNumber}",
-                    currentCall = callInfo
-                )}
+                Log.d("SipListener", "onCallConnected with: ${callInfo.phoneNumber}")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Call connected with ${callInfo.phoneNumber}",
+                        currentCall = callInfo
+                    )
+                }
             }
 
             override fun onCallEnded(callInfo: EddysSipLibrary.CallInfo, reason: EddysSipLibrary.CallEndReason) {
-                _uiState.update { it.copy(
-                    callMessage = "Call ended: ${reason.name}",
-                    currentCall = null,
-                    incomingCall = null
-                )}
+                Log.d("SipListener", "onCallEnded: ${reason.name}, callInfo: $callInfo")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Call ended: ${reason.name}",
+                        currentCall = null,
+                        incomingCall = null
+                    )
+                }
             }
 
             override fun onCallFailed(error: String, callInfo: EddysSipLibrary.CallInfo?) {
-                _uiState.update { it.copy(
-                    callMessage = "Call failed: $error"
-                )}
+                Log.d("SipListener", "onCallFailed: $error, callInfo: $callInfo")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Call failed: $error"
+                    )
+                }
             }
         })
 
         // Listener específico para llamadas
         sipLibrary.setCallListener(object : EddysSipLibrary.CallListener {
             override fun onCallInitiated(callInfo: EddysSipLibrary.CallInfo) {
-                _uiState.update { it.copy(
-                    callMessage = "Calling ${callInfo.phoneNumber}...",
-                    currentCall = callInfo
-                )}
+                Log.d("CallListener", "onCallInitiated to: ${callInfo.phoneNumber}")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Calling ${callInfo.phoneNumber}...",
+                        currentCall = callInfo
+                    )
+                }
             }
 
             override fun onCallRinging(callInfo: EddysSipLibrary.CallInfo) {
-                _uiState.update { it.copy(
-                    callMessage = "Ringing ${callInfo.phoneNumber}..."
-                )}
+                Log.d("CallListener", "onCallRinging: ${callInfo.phoneNumber}")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Ringing ${callInfo.phoneNumber}..."
+                    )
+                }
             }
 
             override fun onCallConnected(callInfo: EddysSipLibrary.CallInfo) {
+                Log.d("CallListener", "onCallConnected: ${callInfo.phoneNumber}")
+                // Se maneja en el otro listener también
             }
 
             override fun onCallHeld(callInfo: EddysSipLibrary.CallInfo) {
-                _uiState.update { it.copy(
-                    callMessage = "Call on hold",
-                    currentCall = callInfo
-                )}
+                Log.d("CallListener", "onCallHeld")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Call on hold",
+                        currentCall = callInfo
+                    )
+                }
             }
 
             override fun onCallResumed(callInfo: EddysSipLibrary.CallInfo) {
-                _uiState.update { it.copy(
-                    callMessage = "Call resumed",
-                    currentCall = callInfo
-                )}
+                Log.d("CallListener", "onCallResumed")
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Call resumed",
+                        currentCall = callInfo
+                    )
+                }
             }
 
-            override fun onCallEnded(
-                callInfo: EddysSipLibrary.CallInfo,
-                reason: EddysSipLibrary.CallEndReason
-            ) {
+            override fun onCallEnded(callInfo: EddysSipLibrary.CallInfo, reason: EddysSipLibrary.CallEndReason) {
+                Log.d("CallListener", "onCallEnded: ${reason.name}")
+                // Se maneja en el otro listener también
             }
 
-            override fun onCallTransferred(
-                callInfo: EddysSipLibrary.CallInfo,
-                transferTo: String
-            ) {
+            override fun onCallTransferred(callInfo: EddysSipLibrary.CallInfo, transferTo: String) {
+                Log.d("CallListener", "onCallTransferred to: $transferTo")
             }
 
             override fun onMuteStateChanged(isMuted: Boolean, callInfo: EddysSipLibrary.CallInfo) {
-                _uiState.update { it.copy(
-                    currentCall = callInfo
-                )}
+                Log.d("CallListener", "onMuteStateChanged: $isMuted")
+                _uiState.update {
+                    it.copy(
+                        currentCall = callInfo
+                    )
+                }
             }
         })
     }
+
 
     // Acciones del usuario
     fun onPermissionsGranted() {
@@ -284,5 +318,14 @@ fun CallState.getDisplayText(): String {
         CallState.ENDED -> "Call Ended"
         CallState.DECLINED -> "Declined"
         CallState.ERROR -> "Error"
+        CallState.IDLE -> "Idle"
+        CallState.DIALING -> "Dialing..."
+        CallState.PAUSED -> "Call Paused"
+        CallState.FAILED -> "Call Failed"
+        CallState.CANCELLED -> "Call Cancelled"
+        CallState.DECLINING -> "Declining Call..."
+        CallState.RESUMING -> "Resuming Call..."
+        CallState.INITIATING -> "Initiating Call..."
     }
+
 }

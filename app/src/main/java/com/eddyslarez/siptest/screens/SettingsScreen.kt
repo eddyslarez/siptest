@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.eddyslarez.siplibrary.data.models.CallStateInfo
 import com.eddyslarez.siplibrary.data.models.CallState
 import com.eddyslarez.siplibrary.data.models.RegistrationState
 import com.eddyslarez.siptest.viewmodel.SipUiState
@@ -65,7 +66,7 @@ fun SettingsScreen(
 @Composable
 fun SystemStatusCard(
     registrationState: RegistrationState,
-    callState: CallState,
+    callState: CallStateInfo,
     uiState: SipUiState
 ) {
     Card(
@@ -90,16 +91,16 @@ fun SystemStatusCard(
 
             StatusItem(
                 label = "Call State",
-                value = callState.getDisplayText(),
+                value = callState.state.getDisplayText(),
                 icon = Icons.Default.Call,
-                isSuccess = callState == CallState.CONNECTED
+                isSuccess = callState.state == CallState.CONNECTED
             )
 
             StatusItem(
                 label = "Active Call",
-                value = if (callState.isCallActive()) "Yes" else "No",
+                value = if (callState.state.isCallActive()) "Yes" else "No",
                 icon = Icons.Default.Phone,
-                isSuccess = callState.isCallActive()
+                isSuccess = callState.state.isCallActive()
             )
         }
     }

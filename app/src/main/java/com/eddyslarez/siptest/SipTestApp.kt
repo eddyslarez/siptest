@@ -32,7 +32,7 @@ fun SipTestApp(
 
     // Si hay una llamada activa, navegar a la pantalla de llamada
     LaunchedEffect(callState) {
-        if (callState.isCallActive()) {
+        if (callState.state.isCallActive()) {
             navController.navigate("call") {
                 launchSingleTop = true
             }
@@ -49,7 +49,7 @@ fun SipTestApp(
             )
         },
         bottomBar = {
-            if (!callState.isCallActive()) {
+            if (!callState.state.isCallActive()) {
                 SipTestBottomNavigation(navController = navController)
             }
         }

@@ -5,9 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.eddyslarez.siplibrary.EddysSipLibrary
+import com.eddyslarez.siplibrary.data.models.CallErrorReason
 import com.eddyslarez.siplibrary.data.models.CallState
+import com.eddyslarez.siplibrary.data.models.CallStateInfo
 import com.eddyslarez.siplibrary.data.models.RegistrationState
+import com.eddyslarez.siplibrary.data.models.SipErrorMapper
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class SipViewModel(
@@ -20,38 +26,73 @@ class SipViewModel(
     private val _permissionsGranted = MutableStateFlow(false)
     val permissionsGranted: StateFlow<Boolean> = _permissionsGranted.asStateFlow()
 
-    // Estados de la biblioteca SIP
-    val callState: StateFlow<CallState> = sipLibrary.getCallStateFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, CallState.NONE)
+    val callState: StateFlow<CallStateInfo> = sipLibrary.getCallStateFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly,
+            CallStateInfo(
+                state = CallState.IDLE,
+                previousState = null,
+                timestamp = System.currentTimeMillis()
+            )
+        )
+    /** Último estado de la cuenta que se esté registrando / usando.            */
+    private val _registrationState = MutableStateFlow(RegistrationState.NONE)
+    val registrationState: StateFlow<RegistrationState> = _registrationState.asStateFlow()
+    // Estados de registro multi-cuenta
+    val registrationStates: StateFlow<Map<String, RegistrationState>> = sipLibrary.getRegistrationStatesFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    val registrationState: StateFlow<RegistrationState> = sipLibrary.getRegistrationStateFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, RegistrationState.NONE)
+    // Historial de estados para debugging
+    val callStateHistory: StateFlow<List<CallStateInfo>> = sipLibrary.getCallStateFlow()
+        .map { currentState ->
+            sipLibrary.getCallStateHistory()
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
         setupSipListeners()
-    }
+        observeCallStates()
+        observeRegistrationStates()   // ⬅️ nuevo
 
+    }
+    /** Actualiza _registrationState cuando lleguen cambios de la librería. */
+    private fun observeRegistrationStates() = viewModelScope.launch {
+        registrationStates.collect { allStates ->
+            // Si ya sabemos qué usuario/dominio está usando la UI, úsalo:
+            val key = "${_uiState.value.registeredUsername}@${_uiState.value.registeredDomain}"
+            _registrationState.value = allStates[key] ?: RegistrationState.NONE
+        }
+    }
     private fun setupSipListeners() {
         // Listener principal para eventos SIP
         sipLibrary.addSipEventListener(object : EddysSipLibrary.SipEventListener {
             override fun onRegistrationStateChanged(state: RegistrationState, username: String, domain: String) {
+                _registrationState.value = state
                 Log.d("SipListener", "onRegistrationStateChanged: $username@$domain -> ${state.name}")
                 _uiState.update {
                     it.copy(
-                        registrationMessage = "Registration: ${state.name}",
+                        registrationMessage = "Registration: ${state.name} ($username@$domain)",
                         isRegistered = state == RegistrationState.OK
                     )
                 }
             }
 
-            override fun onCallStateChanged(state: CallState, callInfo: EddysSipLibrary.CallInfo?) {
-                Log.d("SipListener", "onCallStateChanged: ${state.name}, callInfo: $callInfo")
+            // OPTIMIZADO: Listener unificado para estados de llamada
+            override fun onCallStateChanged(stateInfo: CallStateInfo) {
+                Log.d("SipListener", "onCallStateChanged: ${stateInfo.state.name}")
+
+                val message = buildCallMessage(stateInfo)
                 _uiState.update {
                     it.copy(
-                        callMessage = "Call: ${state.name}",
-                        currentCall = callInfo
+                        callMessage = message,
+                        detailedCallMessage = message,
+                        lastStateTransition = "${stateInfo.previousState?.name ?: "NONE"} → ${stateInfo.state.name}",
+                        hasCallError = stateInfo.hasError(),
+                        errorReason = if (stateInfo.hasError()) stateInfo.errorReason.name else null
                     )
                 }
+
+                // Manejar estados específicos
+                handleStateChange(stateInfo)
             }
 
             override fun onIncomingCall(callInfo: EddysSipLibrary.IncomingCallInfo) {
@@ -80,7 +121,9 @@ class SipViewModel(
                     it.copy(
                         callMessage = "Call ended: ${reason.name}",
                         currentCall = null,
-                        incomingCall = null
+                        incomingCall = null,
+                        hasCallError = false,
+                        errorReason = null
                     )
                 }
             }
@@ -89,13 +132,15 @@ class SipViewModel(
                 Log.d("SipListener", "onCallFailed: $error, callInfo: $callInfo")
                 _uiState.update {
                     it.copy(
-                        callMessage = "Call failed: $error"
+                        callMessage = "Call failed: $error",
+                        hasCallError = true,
+                        errorReason = "FAILED"
                     )
                 }
             }
         })
 
-        // Listener específico para llamadas
+        // Listener específico para llamadas con estados detallados
         sipLibrary.setCallListener(object : EddysSipLibrary.CallListener {
             override fun onCallInitiated(callInfo: EddysSipLibrary.CallInfo) {
                 Log.d("CallListener", "onCallInitiated to: ${callInfo.phoneNumber}")
@@ -118,7 +163,6 @@ class SipViewModel(
 
             override fun onCallConnected(callInfo: EddysSipLibrary.CallInfo) {
                 Log.d("CallListener", "onCallConnected: ${callInfo.phoneNumber}")
-                // Se maneja en el otro listener también
             }
 
             override fun onCallHeld(callInfo: EddysSipLibrary.CallInfo) {
@@ -143,7 +187,6 @@ class SipViewModel(
 
             override fun onCallEnded(callInfo: EddysSipLibrary.CallInfo, reason: EddysSipLibrary.CallEndReason) {
                 Log.d("CallListener", "onCallEnded: ${reason.name}")
-                // Se maneja en el otro listener también
             }
 
             override fun onCallTransferred(callInfo: EddysSipLibrary.CallInfo, transferTo: String) {
@@ -158,11 +201,208 @@ class SipViewModel(
                     )
                 }
             }
+
+            // OPTIMIZADO: Listener unificado para estados detallados específicos de llamada
+            override fun onCallStateChanged(stateInfo: CallStateInfo) {
+                Log.d("CallListener", "onCallStateChanged: ${stateInfo.state}")
+
+                // Aquí puedes manejar lógica específica de UI para cada estado
+                when (stateInfo.state) {
+                    CallState.OUTGOING_INIT -> {
+                        _uiState.update { it.copy(callMessage = "Iniciando llamada...") }
+                    }
+                    CallState.OUTGOING_PROGRESS -> {
+                        _uiState.update { it.copy(callMessage = "Estableciendo conexión...") }
+                    }
+                    CallState.OUTGOING_RINGING -> {
+                        _uiState.update { it.copy(callMessage = "Sonando...") }
+                    }
+                    CallState.INCOMING_RECEIVED -> {
+                        _uiState.update { it.copy(callMessage = "Llamada entrante") }
+                    }
+                    CallState.CONNECTED -> {
+                        _uiState.update { it.copy(callMessage = "Conectado") }
+                    }
+                    CallState.STREAMS_RUNNING -> {
+                        _uiState.update { it.copy(callMessage = "Audio activo") }
+                    }
+                    CallState.PAUSING -> {
+                        _uiState.update { it.copy(callMessage = "Pausando llamada...") }
+                    }
+                    CallState.PAUSED -> {
+                        _uiState.update { it.copy(callMessage = "Llamada en espera") }
+                    }
+                    CallState.RESUMING -> {
+                        _uiState.update { it.copy(callMessage = "Reanudando llamada...") }
+                    }
+                    CallState.ENDING -> {
+                        _uiState.update { it.copy(callMessage = "Finalizando llamada...") }
+                    }
+                    CallState.ENDED -> {
+                        _uiState.update { it.copy(callMessage = "Llamada finalizada") }
+                    }
+                    CallState.ERROR -> {
+                        val errorMsg = SipErrorMapper.getErrorDescription(stateInfo.errorReason)
+                        _uiState.update {
+                            it.copy(
+                                callMessage = "Error: $errorMsg",
+                                hasCallError = true,
+                                errorReason = stateInfo.errorReason.name
+                            )
+                        }
+                    }
+                    else -> {}
+                }
+            }
         })
     }
 
+    // OPTIMIZADO: Observar estados unificados para lógica adicional
+    private fun observeCallStates() {
+        viewModelScope.launch {
+            callState.collect { stateInfo ->
+                // Lógica adicional basada en estados
+                when (stateInfo.state) {
+                    CallState.STREAMS_RUNNING -> {
+                        // Iniciar timer de duración de llamada
+                        startCallDurationTimer()
+                    }
+                    CallState.ENDED, CallState.ERROR -> {
+                        // Detener timer de duración
+                        stopCallDurationTimer()
+                    }
+                    else -> {}
+                }
+            }
+        }
 
-    // Acciones del usuario
+        // Observar estados de registro multi-cuenta
+        viewModelScope.launch {
+            registrationStates.collect { states ->
+                val registeredCount = states.values.count { it == RegistrationState.OK }
+                val totalCount = states.size
+
+                _uiState.update {
+                    it.copy(
+                        multiAccountStatus = "Cuentas registradas: $registeredCount/$totalCount",
+                        allAccountsRegistered = registeredCount == totalCount && totalCount > 0
+                    )
+                }
+            }
+        }
+    }
+
+    // OPTIMIZADO: Construir mensaje del estado
+    private fun buildCallMessage(stateInfo: CallStateInfo): String {
+        val baseMessage = when (stateInfo.state) {
+            CallState.IDLE -> "Sin llamadas"
+            CallState.OUTGOING_INIT -> "Iniciando llamada saliente"
+            CallState.OUTGOING_PROGRESS -> "Progreso de llamada (${stateInfo.sipCode})"
+            CallState.OUTGOING_RINGING -> "Teléfono sonando"
+            CallState.INCOMING_RECEIVED -> "Llamada entrante recibida"
+            CallState.CONNECTED -> "Llamada conectada"
+            CallState.STREAMS_RUNNING -> "Audio en curso"
+            CallState.PAUSING -> "Pausando..."
+            CallState.PAUSED -> "En espera"
+            CallState.RESUMING -> "Reanudando..."
+            CallState.ENDING -> "Finalizando..."
+            CallState.ENDED -> "Llamada terminada"
+            CallState.ERROR -> "Error: ${SipErrorMapper.getErrorDescription(stateInfo.errorReason)}"
+        }
+
+        return if (stateInfo.sipCode != null) {
+            "$baseMessage (${stateInfo.sipCode})"
+        } else {
+            baseMessage
+        }
+    }
+
+    // OPTIMIZADO: Manejar cambios de estado específicos
+    private fun handleStateChange(stateInfo: CallStateInfo) {
+        when (stateInfo.state) {
+            CallState.ERROR -> {
+                // Manejar errores específicos
+                when (stateInfo.errorReason) {
+                    CallErrorReason.BUSY -> {
+                        _uiState.update { it.copy(callMessage = "Línea ocupada") }
+                    }
+                    CallErrorReason.NO_ANSWER -> {
+                        _uiState.update { it.copy(callMessage = "Sin respuesta") }
+                    }
+                    CallErrorReason.REJECTED -> {
+                        _uiState.update { it.copy(callMessage = "Llamada rechazada") }
+                    }
+                    CallErrorReason.NETWORK_ERROR -> {
+                        _uiState.update { it.copy(callMessage = "Error de red") }
+                    }
+                    else -> {
+                        _uiState.update { it.copy(callMessage = "Error desconocido") }
+                    }
+                }
+            }
+            CallState.OUTGOING_RINGING -> {
+                // Iniciar sonido de ringback si es necesario
+                Log.d("SipViewModel", "Call is ringing - could start ringback tone")
+            }
+            CallState.STREAMS_RUNNING -> {
+                // Audio está fluyendo - actualizar UI
+                Log.d("SipViewModel", "Audio streams are running")
+            }
+            else -> {}
+        }
+    }
+
+    // Timer de duración de llamada
+    private var callDurationTimer: Job? = null
+    private val _callDuration = MutableStateFlow(0L)
+    val callDuration: StateFlow<Long> = _callDuration.asStateFlow()
+
+    private fun startCallDurationTimer() {
+        stopCallDurationTimer()
+        callDurationTimer = viewModelScope.launch {
+            var duration = 0L
+            while (isActive) {
+                _callDuration.value = duration
+                delay(1000)
+                duration += 1000
+            }
+        }
+    }
+
+    private fun stopCallDurationTimer() {
+        callDurationTimer?.cancel()
+        callDurationTimer = null
+        _callDuration.value = 0L
+    }
+
+    // OPTIMIZADO: Métodos para obtener información
+    fun getCurrentCallState(): CallStateInfo {
+        return sipLibrary.getCurrentCallState()
+    }
+
+    fun getCallStateHistory(): List<CallStateInfo> {
+        return sipLibrary.getCallStateHistory()
+    }
+
+    fun clearCallStateHistory() {
+        sipLibrary.clearCallStateHistory()
+    }
+
+    fun getSystemDiagnostic(): String {
+        return buildString {
+            appendLine("=== SYSTEM DIAGNOSTIC ===")
+            appendLine(sipLibrary.diagnoseListeners())
+            appendLine("\n=== CALL STATE HISTORY ===")
+            getCallStateHistory().takeLast(10).forEach { state ->
+                appendLine("${state.timestamp}: ${state.previousState} -> ${state.state}")
+                if (state.hasError()) {
+                    appendLine("  Error: ${state.errorReason} (${state.sipCode})")
+                }
+            }
+        }
+    }
+
+    // Métodos existentes...
     fun onPermissionsGranted() {
         _permissionsGranted.value = true
     }
@@ -255,10 +495,12 @@ class SipViewModel(
     }
 
     fun sendDtmf(digit: Char) {
-        // Implementar envío de DTMF a través de la biblioteca
-        _uiState.update { it.copy(
-            callMessage = "DTMF sent: $digit"
-        )}
+        viewModelScope.launch {
+            val success = sipLibrary.sendDtmf(digit)
+            _uiState.update { it.copy(
+                callMessage = if (success) "DTMF sent: $digit" else "Failed to send DTMF: $digit"
+            )}
+        }
     }
 
     fun updateDialedNumber(number: String) {
@@ -280,6 +522,7 @@ class SipViewModel(
     }
 }
 
+// ACTUALIZADO: Estado de UI con nuevos campos
 data class SipUiState(
     val registrationMessage: String = "Not registered",
     val callMessage: String = "No active calls",
@@ -289,43 +532,47 @@ data class SipUiState(
     val isRegistered: Boolean = false,
     val isRegistering: Boolean = false,
     val currentCall: EddysSipLibrary.CallInfo? = null,
-    val incomingCall: EddysSipLibrary.IncomingCallInfo? = null
+    val incomingCall: EddysSipLibrary.IncomingCallInfo? = null,
+
+    // Campos para estados
+    val detailedCallMessage: String = "Idle",
+    val lastStateTransition: String = "",
+    val hasCallError: Boolean = false,
+    val errorReason: String? = null,
+    val multiAccountStatus: String = "No accounts",
+    val allAccountsRegistered: Boolean = false
 )
 
-// Extension functions para estados
+// OPTIMIZADO: Extension functions para estados
 fun CallState.isCallActive(): Boolean {
     return this in listOf(
-        CallState.CALLING,
-        CallState.RINGING,
+        CallState.OUTGOING_INIT,
+        CallState.OUTGOING_PROGRESS,
+        CallState.OUTGOING_RINGING,
+        CallState.INCOMING_RECEIVED,
         CallState.CONNECTED,
-        CallState.INCOMING,
-        CallState.ACCEPTING,
-        CallState.HOLDING
+        CallState.STREAMS_RUNNING,
+        CallState.PAUSING,
+        CallState.PAUSED,
+        CallState.RESUMING
     )
 }
 
 fun CallState.getDisplayText(): String {
     return when (this) {
-        CallState.NONE -> "No Call"
-        CallState.INCOMING -> "Incoming Call"
-        CallState.OUTGOING -> "Outgoing Call"
-        CallState.CALLING -> "Calling..."
-        CallState.RINGING -> "Ringing..."
-        CallState.CONNECTED -> "Connected"
-        CallState.HOLDING -> "On Hold"
-        CallState.ACCEPTING -> "Accepting..."
-        CallState.ENDING -> "Ending..."
-        CallState.ENDED -> "Call Ended"
-        CallState.DECLINED -> "Declined"
+        CallState.IDLE -> "Sin llamadas"
+        CallState.OUTGOING_INIT -> "Iniciando..."
+        CallState.OUTGOING_PROGRESS -> "Conectando..."
+        CallState.OUTGOING_RINGING -> "Sonando..."
+        CallState.INCOMING_RECEIVED -> "Llamada entrante"
+        CallState.CONNECTED -> "Conectado"
+        CallState.STREAMS_RUNNING -> "En llamada"
+        CallState.PAUSING -> "Pausando..."
+        CallState.PAUSED -> "En espera"
+        CallState.RESUMING -> "Reanudando..."
+        CallState.ENDING -> "Finalizando..."
+        CallState.ENDED -> "Finalizada"
         CallState.ERROR -> "Error"
-        CallState.IDLE -> "Idle"
-        CallState.DIALING -> "Dialing..."
-        CallState.PAUSED -> "Call Paused"
-        CallState.FAILED -> "Call Failed"
-        CallState.CANCELLED -> "Call Cancelled"
-        CallState.DECLINING -> "Declining Call..."
-        CallState.RESUMING -> "Resuming Call..."
-        CallState.INITIATING -> "Initiating Call..."
     }
-
 }
+

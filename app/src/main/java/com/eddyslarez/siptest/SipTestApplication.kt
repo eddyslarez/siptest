@@ -16,7 +16,7 @@ class SipTestApplication : Application() {
     val sipLibrary by lazy { EddysSipLibrary.getInstance() }
 
     private val sipAccounts = listOf(
-        SipAccount("90544007", "GK94phwuNoUz30Eq", "sip.spb.mcn.ru"),
+        SipAccount("90544000", "qsulxIRyGiajP664", "sip.spb.mcn.ru"),
 //        SipAccount("9054607", "GK94phfudf0Eq", "sip.f.cru")
     )
 

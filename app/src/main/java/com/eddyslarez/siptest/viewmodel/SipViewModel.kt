@@ -10,22 +10,35 @@ import com.eddyslarez.siplibrary.data.models.CallState
 import com.eddyslarez.siplibrary.data.models.CallStateInfo
 import com.eddyslarez.siplibrary.data.models.RegistrationState
 import com.eddyslarez.siplibrary.data.models.SipErrorMapper
+import com.eddyslarez.siplibrary.utils.log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 class SipViewModel(
     private val sipLibrary: EddysSipLibrary
 ) : ViewModel() {
-
+  val  TAG= "sipvoewmodel"
     private val _uiState = MutableStateFlow(SipUiState())
     val uiState: StateFlow<SipUiState> = _uiState.asStateFlow()
 
     private val _permissionsGranted = MutableStateFlow(false)
     val permissionsGranted: StateFlow<Boolean> = _permissionsGranted.asStateFlow()
+    // NUEVO: Estados de audio
+    private val _isRecordingSentAudio = MutableStateFlow(false)
+    val isRecordingSentAudio: StateFlow<Boolean> = _isRecordingSentAudio.asStateFlow()
 
+    private val _isRecordingReceivedAudio = MutableStateFlow(false)
+    val isRecordingReceivedAudio: StateFlow<Boolean> = _isRecordingReceivedAudio.asStateFlow()
+
+    private val _isPlayingInputFile = MutableStateFlow(false)
+    val isPlayingInputFile: StateFlow<Boolean> = _isPlayingInputFile.asStateFlow()
+
+    private val _isPlayingOutputFile = MutableStateFlow(false)
+    val isPlayingOutputFile: StateFlow<Boolean> = _isPlayingOutputFile.asStateFlow()
     val callState: StateFlow<CallStateInfo> = sipLibrary.getCallStateFlow()
         .stateIn(viewModelScope, SharingStarted.Eagerly,
             CallStateInfo(
@@ -257,6 +270,194 @@ class SipViewModel(
         })
     }
 
+    fun updateCallMessage(message: String){
+        log.d("callmessage" ,{ message })
+    }
+    // NUEVO: Funciones de grabación
+    fun startRecordingSentAudio() {
+        viewModelScope.launch {
+            try {
+                if (sipLibrary.startRecordingSentAudio()) {
+                    _isRecordingSentAudio.value = true
+                    updateCallMessage("🎙️ Grabando audio enviado...")
+                } else {
+                    updateCallMessage("❌ Error al iniciar grabación de audio enviado")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting sent audio recording", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    fun stopRecordingSentAudio() {
+        viewModelScope.launch {
+            try {
+                val filePath = sipLibrary.stopRecordingSentAudio()
+                _isRecordingSentAudio.value = false
+                if (filePath != null) {
+                    updateCallMessage("✅ Audio enviado guardado:")
+                } else {
+                    updateCallMessage("⚠️ No se pudo guardar el audio enviado")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping sent audio recording", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    fun startRecordingReceivedAudio() {
+        viewModelScope.launch {
+            try {
+                if (sipLibrary.startRecordingReceivedAudio()) {
+                    _isRecordingReceivedAudio.value = true
+                    updateCallMessage("🎙️ Grabando audio recibido...")
+                } else {
+                    updateCallMessage("❌ Error al iniciar grabación de audio recibido")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting received audio recording", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    fun stopRecordingReceivedAudio() {
+        viewModelScope.launch {
+            try {
+                val filePath = sipLibrary.stopRecordingReceivedAudio()
+                _isRecordingReceivedAudio.value = false
+                if (true) {
+                    updateCallMessage("✅ Audio recibido guardado: ")
+                } else {
+                    updateCallMessage("⚠️ No se pudo guardar el audio recibido")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping received audio recording", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    // NUEVO: Funciones de reproducción
+    fun startPlayingInputAudioFile(filePath: String, loop: Boolean = false) {
+        viewModelScope.launch {
+            try {
+                if (sipLibrary.startPlayingInputAudioFile(filePath, loop)) {
+                    _isPlayingInputFile.value = true
+                    updateCallMessage("🔊 Reproduciendo archivo de entrada: ")
+                } else {
+                    updateCallMessage("❌ Error al reproducir archivo de entrada")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting input audio file playback", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    fun stopPlayingInputAudioFile() {
+        viewModelScope.launch {
+            try {
+                if (sipLibrary.stopPlayingInputAudioFile()) {
+                    _isPlayingInputFile.value = false
+                    updateCallMessage("⏹️ Detenida reproducción de entrada, volviendo al micrófono")
+                } else {
+                    updateCallMessage("❌ Error al detener reproducción de entrada")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping input audio file playback", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    fun startPlayingOutputAudioFile(filePath: String, loop: Boolean = false) {
+        viewModelScope.launch {
+            try {
+
+                if (sipLibrary.startPlayingOutputAudioFile(filePath, loop)) {
+                    _isPlayingOutputFile.value = true
+                    updateCallMessage("🔊 Reproduciendo archivo de salida: ${File(filePath).name}")
+                } else {
+                    updateCallMessage("❌ Error al reproducir archivo de salida")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting output audio file playback", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    fun stopPlayingOutputAudioFile() {
+        viewModelScope.launch {
+            try {
+                if (sipLibrary.stopPlayingOutputAudioFile()) {
+                    _isPlayingOutputFile.value = false
+                    updateCallMessage("⏹️ Detenida reproducción de salida, volviendo al audio recibido")
+                } else {
+                    updateCallMessage("❌ Error al detener reproducción de salida")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping output audio file playback", e)
+                updateCallMessage("❌ Error: ${e.message}")
+            }
+        }
+    }
+
+    // NUEVO: Funciones de gestión de archivos
+    fun getRecordedAudioFiles(): List<File> {
+        return try {
+            sipLibrary.getRecordedAudioFiles()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting recorded audio files", e)
+            emptyList()
+        }
+    }
+
+    fun deleteRecordedAudioFile(filePath: String): Boolean {
+        return try {
+            sipLibrary.deleteRecordedAudioFile(filePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting recorded audio file", e)
+            false
+        }
+    }
+
+    fun getAudioFileDuration(filePath: String): Long {
+        return try {
+            sipLibrary.getAudioFileDuration(filePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting audio file duration", e)
+            0L
+        }
+    }
+
+    fun getCurrentInputAudioFile(): String? {
+        return try {
+            sipLibrary.getCurrentInputAudioFile()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting current input audio file", e)
+            null
+        }
+    }
+
+    fun getCurrentOutputAudioFile(): String? {
+        return try {
+            sipLibrary.getCurrentOutputAudioFile()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting current output audio file", e)
+            null
+        }
+    }
+
+    fun showRecordedFiles() {
+        // Implementar navegación a pantalla de archivos grabados
+        val files = getRecordedAudioFiles()
+        Log.d(TAG, "Recorded files: ${files.map { it.name }}")
+        updateCallMessage("📁 ${files.size} archivos grabados disponibles")
+    }
     // OPTIMIZADO: Observar estados unificados para lógica adicional
     private fun observeCallStates() {
         viewModelScope.launch {

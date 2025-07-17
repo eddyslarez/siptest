@@ -37,10 +37,34 @@ class SipTestApplication : Application() {
         // Configurar el listener para manejar estados de registro
         setupRegistrationListener()
 
+        // NUEVO: Configurar listener para eventos de audio
+//        setupAudioEventListener()
+
         // Iniciar el registro secuencial
         startSequentialRegistration()
     }
-
+//    // NUEVO: Configurar listener para eventos de audio
+//    private fun setupAudioEventListener() {
+//        sipLibrary.setAudioEventListener(object : EddysSipLibrary.AudioEventListener {
+//            override fun onRecordingStateChanged(isRecording: Boolean, filePath: String?, isSentAudio: Boolean) {
+//                val type = if (isSentAudio) "enviado" else "recibido"
+//                if (isRecording) {
+//                    Log.d(TAG, "🎙️ Iniciada grabación de audio $type")
+//                } else {
+//                    Log.d(TAG, "⏹️ Detenida grabación de audio $type: $filePath")
+//                }
+//            }
+//
+//            override fun onAudioFilePlaybackStateChanged(isPlaying: Boolean, filePath: String?, isInputAudio: Boolean) {
+//                val type = if (isInputAudio) "entrada" else "salida"
+//                if (isPlaying) {
+//                    Log.d(TAG, "🔊 Iniciada reproducción de audio $type: $filePath")
+//                } else {
+//                    Log.d(TAG, "⏸️ Detenida reproducción de audio $type")
+//                }
+//            }
+//        })
+//    }
     private fun initializeSipLibrary() {
         val config = EddysSipLibrary.SipConfig(
             defaultDomain = "mcn.ru",

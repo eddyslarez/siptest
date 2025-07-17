@@ -1,5 +1,8 @@
 package com.eddyslarez.siptest.screens
 
+import android.annotation.SuppressLint
+import android.os.Environment
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -27,6 +30,7 @@ import com.eddyslarez.siptest.viewmodel.SipViewModel
 import com.eddyslarez.siptest.viewmodel.getDisplayText
 import com.eddyslarez.siptest.viewmodel.isCallActive
 import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun CallScreen(
@@ -34,15 +38,19 @@ fun CallScreen(
     onNavigateBack: () -> Unit
 ) {
     val uiState by sipViewModel.uiState.collectAsState()
-
-    // OPTIMIZADO: Estados unificados
     val callState by sipViewModel.callState.collectAsState()
     val callDuration by sipViewModel.callDuration.collectAsState()
+
+    // NUEVO: Estados de audio
+    val isRecordingSent by sipViewModel.isRecordingSentAudio.collectAsState()
+    val isRecordingReceived by sipViewModel.isRecordingReceivedAudio.collectAsState()
+    val isPlayingInputFile by sipViewModel.isPlayingInputFile.collectAsState()
+    val isPlayingOutputFile by sipViewModel.isPlayingOutputFile.collectAsState()
 
     val currentCall = uiState.currentCall
     val incomingCall = uiState.incomingCall
 
-    // OPTIMIZADO: Navegar de vuelta cuando la llamada termine usando estados unificados
+    // Navegar de vuelta cuando la llamada termine
     LaunchedEffect(callState.state) {
         if (callState.state == CallState.ENDED ||
             callState.state == CallState.IDLE) {
@@ -58,7 +66,7 @@ fun CallScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // OPTIMIZADO: Información de la llamada con estados unificados
+        // Información de la llamada
         CallInfoSection(
             callState = callState,
             currentCall = currentCall,
@@ -70,11 +78,22 @@ fun CallScreen(
             errorReason = uiState.errorReason
         )
 
-        // OPTIMIZADO: Controles de llamada con estados unificados
+        // NUEVO: Indicadores de estado de audio
+        AudioStatusSection(
+            isRecordingSent = isRecordingSent,
+            isRecordingReceived = isRecordingReceived,
+            isPlayingInputFile = isPlayingInputFile,
+            isPlayingOutputFile = isPlayingOutputFile,
+            currentInputFile = sipViewModel.getCurrentInputAudioFile(),
+            currentOutputFile = sipViewModel.getCurrentOutputAudioFile()
+        )
+
+        // Controles de llamada con funciones de audio
         CallControlsSection(
             callState = callState,
             currentCall = currentCall,
             incomingCall = incomingCall,
+            sipViewModel = sipViewModel,
             onAccept = { sipViewModel.acceptCall() },
             onDecline = { sipViewModel.declineCall() },
             onEnd = { sipViewModel.endCall() },
@@ -86,141 +105,100 @@ fun CallScreen(
     }
 }
 
-// OPTIMIZADO: Sección de información con estados unificados
+// NUEVO: Sección de estado de audio
 @Composable
-fun CallInfoSection(
-    callState: CallStateInfo,
-    currentCall: EddysSipLibrary.CallInfo?,
-    incomingCall: EddysSipLibrary.IncomingCallInfo?,
-    callDuration: Long,
-    message: String,
-    detailedMessage: String,
-    hasError: Boolean,
-    errorReason: String?
+fun AudioStatusSection(
+    isRecordingSent: Boolean,
+    isRecordingReceived: Boolean,
+    isPlayingInputFile: Boolean,
+    isPlayingOutputFile: Boolean,
+    currentInputFile: String?,
+    currentOutputFile: String?
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(vertical = 32.dp)
-    ) {
-        // Avatar/Icon con estado visual
-        val avatarColor = when {
-            hasError -> MaterialTheme.colorScheme.errorContainer
-            callState.state == CallState.STREAMS_RUNNING -> MaterialTheme.colorScheme.primaryContainer
-            callState.state.isCallActive() -> MaterialTheme.colorScheme.secondaryContainer
-            else -> MaterialTheme.colorScheme.surfaceVariant
-        }
-
+    if (isRecordingSent || isRecordingReceived || isPlayingInputFile || isPlayingOutputFile) {
         Card(
-            modifier = Modifier.size(120.dp),
-            shape = CircleShape,
-            colors = CardDefaults.cardColors(containerColor = avatarColor)
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Icon(
-                    Icons.Default.Person,
-                    contentDescription = "Caller",
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-
-                // Indicador de estado en la esquina
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(24.dp)
-                        .background(
-                            color = when (callState.state) {
-                                CallState.STREAMS_RUNNING -> Color.Green
-                                CallState.PAUSED -> Color.Yellow
-                                CallState.ERROR -> Color.Red
-                                else -> Color.Gray
-                            },
-                            shape = CircleShape
-                        )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Nombre/Número
-        val displayName = when {
-            incomingCall != null -> incomingCall.callerName ?: incomingCall.callerNumber
-            currentCall != null -> currentCall.phoneNumber
-            else -> "Unknown"
-        }
-
-        Text(
-            text = displayName,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Estado de la llamada
-        Text(
-            text = callState.state.getDisplayText(),
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (hasError) FontWeight.Bold else FontWeight.Normal
-        )
-
-        // Duración de la llamada
-        if (callState.state == CallState.STREAMS_RUNNING && callDuration > 0) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = formatDuration(callDuration),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        // Mensaje detallado
-        if (detailedMessage.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = detailedMessage,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        // Información de error
-        if (hasError && errorReason != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier.padding(12.dp)
             ) {
                 Text(
-                    text = "❌ ${SipErrorMapper.getErrorDescription(CallErrorReason.valueOf(errorReason))}",
-                    modifier = Modifier.padding(12.dp),
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "🎵 Estado del Audio",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isRecordingSent) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            tint = Color.Red,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Grabando audio enviado",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                if (isRecordingReceived) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            tint = Color.Red,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Grabando audio recibido",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                if (isPlayingInputFile) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Reproduciendo: ${File(currentInputFile ?: "").name}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                if (isPlayingOutputFile) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Reproduciendo salida: ${File(currentOutputFile ?: "").name}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
         }
-
-        // Información SIP (solo en debug)
-
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "SIP: ${callState.sipReason ?: ""}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-        }
-
+    }
 }
 
 // OPTIMIZADO: Controles con estados unificados
@@ -229,6 +207,7 @@ fun CallControlsSection(
     callState: CallStateInfo,
     currentCall: EddysSipLibrary.CallInfo?,
     incomingCall: EddysSipLibrary.IncomingCallInfo?,
+    sipViewModel: SipViewModel,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     onEnd: () -> Unit,
@@ -238,46 +217,17 @@ fun CallControlsSection(
     onDtmf: (Char) -> Unit
 ) {
     when (callState.state) {
-        CallState.INCOMING_RECEIVED -> {
-            // Botones para llamada entrante
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                // Declinar
-                FloatingActionButton(
-                    onClick = onDecline,
-                    containerColor = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Icon(
-                        Icons.Default.CallEnd,
-                        contentDescription = "Decline",
-                        tint = MaterialTheme.colorScheme.onError
-                    )
-                }
-
-                // Aceptar
-                FloatingActionButton(
-                    onClick = onAccept,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Call,
-                        contentDescription = "Accept",
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-            }
-        }
-
         CallState.STREAMS_RUNNING, CallState.CONNECTED -> {
             // Controles durante llamada activa
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Primera fila de controles
+                // NUEVO: Controles de audio expandidos
+                AudioControlsExpandedSection(sipViewModel = sipViewModel)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Controles básicos de llamada
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -357,113 +307,45 @@ fun CallControlsSection(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Teclado DTMF solo si está en streams running
-                if (callState.state == CallState.STREAMS_RUNNING) {
-                    DtmfKeypad(onDtmf = onDtmf)
-                }
+                // Teclado DTMF
+                DtmfKeypad(onDtmf = onDtmf)
             }
         }
 
-        CallState.PAUSED -> {
-            // Controles para llamada en hold
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
+        CallState.INCOMING_RECEIVED -> {
+            // Botones para llamada entrante
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // Botón resume prominente
+                // Declinar
                 FloatingActionButton(
-                    onClick = onResume,
-                    containerColor = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.size(72.dp)
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Resume Call",
-                        tint = MaterialTheme.colorScheme.onTertiary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Botón terminar
-                FloatingActionButton(
-                    onClick = onEnd,
-                    containerColor = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Icon(
-                        Icons.Default.CallEnd,
-                        contentDescription = "End Call",
-                        tint = MaterialTheme.colorScheme.onError
-                    )
-                }
-            }
-        }
-
-        CallState.OUTGOING_INIT,
-        CallState.OUTGOING_PROGRESS,
-        CallState.OUTGOING_RINGING -> {
-            // Estados de llamada saliente - solo mostrar botón de cancelar
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                FloatingActionButton(
-                    onClick = onEnd,
+                    onClick = onDecline,
                     containerColor = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
                         Icons.Default.CallEnd,
-                        contentDescription = "Cancel Call",
+                        contentDescription = "Decline",
                         tint = MaterialTheme.colorScheme.onError
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Mostrar estado específico
-                Text(
-                    text = when (callState.state) {
-                        CallState.OUTGOING_INIT -> "Iniciando llamada..."
-                        CallState.OUTGOING_PROGRESS -> "Conectando..."
-                        CallState.OUTGOING_RINGING -> "Sonando..."
-                        else -> ""
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        CallState.ERROR -> {
-            // Estado de error - mostrar información y botón de cerrar
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+                // Aceptar
                 FloatingActionButton(
-                    onClick = onEnd,
-                    containerColor = MaterialTheme.colorScheme.error,
+                    onClick = onAccept,
+                    containerColor = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onError
+                        Icons.Default.Call,
+                        contentDescription = "Accept",
+                        tint = MaterialTheme.colorScheme.onPrimary
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Toca para cerrar",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
-
         else -> {
-            // Estados de transición - mostrar indicador de carga
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -483,6 +365,225 @@ fun CallControlsSection(
         }
     }
 }
+
+// NUEVO: Sección expandida de controles de audio
+@SuppressLint("StateFlowValueCalledInComposition")
+@Composable
+fun AudioControlsExpandedSection(
+    sipViewModel: SipViewModel
+) {
+    var showAudioControls by remember { mutableStateOf(false) }
+
+    Column {
+        // Botón para mostrar/ocultar controles de audio
+        TextButton(
+            onClick = { showAudioControls = !showAudioControls }
+        ) {
+            Icon(
+                if (showAudioControls) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Controles de Audio")
+        }
+
+        // Controles de audio expandibles
+        AnimatedVisibility(visible = showAudioControls) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    // Controles de grabación
+                    Text(
+                        text = "📹 Grabación",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // Grabar audio enviado
+                        Button(
+                            onClick = {
+                                if (sipViewModel.isRecordingSentAudio.value) {
+                                    sipViewModel.stopRecordingSentAudio()
+                                } else {
+                                    sipViewModel.startRecordingSentAudio()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (sipViewModel.isRecordingSentAudio.value)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(
+                                if (sipViewModel.isRecordingSentAudio.value)
+                                    Icons.Default.Stop
+                                else
+                                    Icons.Default.FiberManualRecord,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (sipViewModel.isRecordingSentAudio.value) "Detener" else "Grabar",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+
+                        // Grabar audio recibido
+                        Button(
+                            onClick = {
+                                if (sipViewModel.isRecordingReceivedAudio.value) {
+                                    sipViewModel.stopRecordingReceivedAudio()
+                                } else {
+                                    sipViewModel.startRecordingReceivedAudio()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (sipViewModel.isRecordingReceivedAudio.value)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Icon(
+                                if (sipViewModel.isRecordingReceivedAudio.value)
+                                    Icons.Default.Stop
+                                else
+                                    Icons.Default.FiberManualRecord,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (sipViewModel.isRecordingReceivedAudio.value) "Detener" else "Recibido",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Controles de reproducción
+                    Text(
+                        text = "🎵 Reproducción",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath +
+                            "/smb_gameover.wav"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // Reproducir archivo de entrada
+                        Button(
+                            onClick = {
+                                if (sipViewModel.isPlayingInputFile.value) {
+                                    sipViewModel.stopPlayingInputAudioFile()
+                                } else {
+                                    // Aquí deberías mostrar un selector de archivos
+                                    // Por ahora usamos un archivo de ejemplo
+                                    sipViewModel.startPlayingInputAudioFile(path)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (sipViewModel.isPlayingInputFile.value)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Icon(
+                                if (sipViewModel.isPlayingInputFile.value)
+                                    Icons.Default.Stop
+                                else
+                                    Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (sipViewModel.isPlayingInputFile.value) "Detener" else "Entrada",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+
+
+                        // Reproducir archivo de salida
+                        Button(
+                            onClick = {
+                                if (sipViewModel.isPlayingOutputFile.value) {
+                                    sipViewModel.stopPlayingOutputAudioFile()
+                                } else {
+                                    // Por ahora usamos un archivo de ejemplo
+                                    sipViewModel.startPlayingOutputAudioFile(path)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (sipViewModel.isPlayingOutputFile.value)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Icon(
+                                if (sipViewModel.isPlayingOutputFile.value)
+                                    Icons.Default.Stop
+                                else
+                                    Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (sipViewModel.isPlayingOutputFile.value) "Detener" else "Salida",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Botón para ver grabaciones
+                    Button(
+                        onClick = {
+                            // Navegar a pantalla de grabaciones
+                            sipViewModel.showRecordedFiles()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.outline
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.Folder,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Ver Grabaciones")
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 
 //@Composable
@@ -551,11 +652,14 @@ fun CallControlsSection(
 
 @Composable
 fun CallInfoSection(
-    callState: CallState,
+    callState: CallStateInfo,
     currentCall: CallInfo?,
     incomingCall: IncomingCallInfo?,
     callDuration: Long,
-    message: String
+    message: String,
+    detailedMessage: String,
+    hasError: Boolean,
+    errorReason: String?,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -602,13 +706,13 @@ fun CallInfoSection(
 
         // Estado de la llamada
         Text(
-            text = callState.getDisplayText(),
+            text = callState.state.getDisplayText(),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         // Duración de la llamada
-        if (callState == CallState.CONNECTED && callDuration > 0) {
+        if (callState.state == CallState.CONNECTED && callDuration > 0) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = formatDuration(callDuration),

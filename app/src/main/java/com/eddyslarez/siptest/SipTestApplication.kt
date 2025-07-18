@@ -10,13 +10,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import android.util.Log
+import com.eddyslarez.siplibrary.data.services.audio.WebRtcManager
 
 class SipTestApplication : Application() {
 
     val sipLibrary by lazy { EddysSipLibrary.getInstance() }
 
     private val sipAccounts = listOf(
-        SipAccount("90544000", "qsulxIRyGiajP664", "sip.spb.mcn.ru"),
+        SipAccount("90544000", "", "sip.spb.mcn.ru"),
 //        SipAccount("9054607", "GK94phfudf0Eq", "sip.f.cru")
     )
 
@@ -72,7 +73,11 @@ class SipTestApplication : Application() {
             userAgent = "SipTestApp/1.0",
             enableLogs = true,
             enableAutoReconnect = true,
-            pingIntervalMs = 30000L
+            pingIntervalMs = 30000L,
+            openAIApiKey="",
+            defaultTargetLanguage = "es",
+            enableAutoTranslation = true,
+            translationQuality= WebRtcManager.TranslationQuality.HIGH
         )
 
         sipLibrary.initialize(

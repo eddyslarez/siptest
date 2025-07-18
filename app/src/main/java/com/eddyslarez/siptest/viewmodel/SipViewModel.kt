@@ -21,12 +21,13 @@ import java.io.File
 class SipViewModel(
     private val sipLibrary: EddysSipLibrary
 ) : ViewModel() {
-  val  TAG= "sipvoewmodel"
+    val TAG = "sipvoewmodel"
     private val _uiState = MutableStateFlow(SipUiState())
     val uiState: StateFlow<SipUiState> = _uiState.asStateFlow()
 
     private val _permissionsGranted = MutableStateFlow(false)
     val permissionsGranted: StateFlow<Boolean> = _permissionsGranted.asStateFlow()
+
     // NUEVO: Estados de audio
     private val _isRecordingSentAudio = MutableStateFlow(false)
     val isRecordingSentAudio: StateFlow<Boolean> = _isRecordingSentAudio.asStateFlow()
@@ -40,19 +41,23 @@ class SipViewModel(
     private val _isPlayingOutputFile = MutableStateFlow(false)
     val isPlayingOutputFile: StateFlow<Boolean> = _isPlayingOutputFile.asStateFlow()
     val callState: StateFlow<CallStateInfo> = sipLibrary.getCallStateFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly,
+        .stateIn(
+            viewModelScope, SharingStarted.Eagerly,
             CallStateInfo(
                 state = CallState.IDLE,
                 previousState = null,
                 timestamp = System.currentTimeMillis()
             )
         )
+
     /** Último estado de la cuenta que se esté registrando / usando.            */
     private val _registrationState = MutableStateFlow(RegistrationState.NONE)
     val registrationState: StateFlow<RegistrationState> = _registrationState.asStateFlow()
+
     // Estados de registro multi-cuenta
-    val registrationStates: StateFlow<Map<String, RegistrationState>> = sipLibrary.getRegistrationStatesFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    val registrationStates: StateFlow<Map<String, RegistrationState>> =
+        sipLibrary.getRegistrationStatesFlow()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     // Historial de estados para debugging
     val callStateHistory: StateFlow<List<CallStateInfo>> = sipLibrary.getCallStateFlow()
@@ -67,6 +72,7 @@ class SipViewModel(
         observeRegistrationStates()   // ⬅️ nuevo
 
     }
+
     /** Actualiza _registrationState cuando lleguen cambios de la librería. */
     private fun observeRegistrationStates() = viewModelScope.launch {
         registrationStates.collect { allStates ->
@@ -75,12 +81,20 @@ class SipViewModel(
             _registrationState.value = allStates[key] ?: RegistrationState.NONE
         }
     }
+
     private fun setupSipListeners() {
         // Listener principal para eventos SIP
         sipLibrary.addSipEventListener(object : EddysSipLibrary.SipEventListener {
-            override fun onRegistrationStateChanged(state: RegistrationState, username: String, domain: String) {
+            override fun onRegistrationStateChanged(
+                state: RegistrationState,
+                username: String,
+                domain: String
+            ) {
                 _registrationState.value = state
-                Log.d("SipListener", "onRegistrationStateChanged: $username@$domain -> ${state.name}")
+                Log.d(
+                    "SipListener",
+                    "onRegistrationStateChanged: $username@$domain -> ${state.name}"
+                )
                 _uiState.update {
                     it.copy(
                         registrationMessage = "Registration: ${state.name} ($username@$domain)",
@@ -128,7 +142,10 @@ class SipViewModel(
                 }
             }
 
-            override fun onCallEnded(callInfo: EddysSipLibrary.CallInfo, reason: EddysSipLibrary.CallEndReason) {
+            override fun onCallEnded(
+                callInfo: EddysSipLibrary.CallInfo,
+                reason: EddysSipLibrary.CallEndReason
+            ) {
                 Log.d("SipListener", "onCallEnded: ${reason.name}, callInfo: $callInfo")
                 _uiState.update {
                     it.copy(
@@ -198,7 +215,10 @@ class SipViewModel(
                 }
             }
 
-            override fun onCallEnded(callInfo: EddysSipLibrary.CallInfo, reason: EddysSipLibrary.CallEndReason) {
+            override fun onCallEnded(
+                callInfo: EddysSipLibrary.CallInfo,
+                reason: EddysSipLibrary.CallEndReason
+            ) {
                 Log.d("CallListener", "onCallEnded: ${reason.name}")
             }
 
@@ -224,36 +244,49 @@ class SipViewModel(
                     CallState.OUTGOING_INIT -> {
                         _uiState.update { it.copy(callMessage = "Iniciando llamada...") }
                     }
+
                     CallState.OUTGOING_PROGRESS -> {
                         _uiState.update { it.copy(callMessage = "Estableciendo conexión...") }
                     }
+
                     CallState.OUTGOING_RINGING -> {
                         _uiState.update { it.copy(callMessage = "Sonando...") }
                     }
+
                     CallState.INCOMING_RECEIVED -> {
                         _uiState.update { it.copy(callMessage = "Llamada entrante") }
                     }
+
                     CallState.CONNECTED -> {
                         _uiState.update { it.copy(callMessage = "Conectado") }
+                        sipLibrary.enableAudioTranslation(
+                            apiKey =  )
                     }
+
                     CallState.STREAMS_RUNNING -> {
                         _uiState.update { it.copy(callMessage = "Audio activo") }
                     }
+
                     CallState.PAUSING -> {
                         _uiState.update { it.copy(callMessage = "Pausando llamada...") }
                     }
+
                     CallState.PAUSED -> {
                         _uiState.update { it.copy(callMessage = "Llamada en espera") }
                     }
+
                     CallState.RESUMING -> {
                         _uiState.update { it.copy(callMessage = "Reanudando llamada...") }
                     }
+
                     CallState.ENDING -> {
                         _uiState.update { it.copy(callMessage = "Finalizando llamada...") }
                     }
+
                     CallState.ENDED -> {
                         _uiState.update { it.copy(callMessage = "Llamada finalizada") }
                     }
+
                     CallState.ERROR -> {
                         val errorMsg = SipErrorMapper.getErrorDescription(stateInfo.errorReason)
                         _uiState.update {
@@ -264,15 +297,17 @@ class SipViewModel(
                             )
                         }
                     }
+
                     else -> {}
                 }
             }
         })
     }
 
-    fun updateCallMessage(message: String){
-        log.d("callmessage" ,{ message })
+    fun updateCallMessage(message: String) {
+        log.d("callmessage", { message })
     }
+
     // NUEVO: Funciones de grabación
     fun startRecordingSentAudio() {
         viewModelScope.launch {
@@ -458,6 +493,7 @@ class SipViewModel(
         Log.d(TAG, "Recorded files: ${files.map { it.name }}")
         updateCallMessage("📁 ${files.size} archivos grabados disponibles")
     }
+
     // OPTIMIZADO: Observar estados unificados para lógica adicional
     private fun observeCallStates() {
         viewModelScope.launch {
@@ -468,10 +504,12 @@ class SipViewModel(
                         // Iniciar timer de duración de llamada
                         startCallDurationTimer()
                     }
+
                     CallState.ENDED, CallState.ERROR -> {
                         // Detener timer de duración
                         stopCallDurationTimer()
                     }
+
                     else -> {}
                 }
             }
@@ -527,28 +565,35 @@ class SipViewModel(
                     CallErrorReason.BUSY -> {
                         _uiState.update { it.copy(callMessage = "Línea ocupada") }
                     }
+
                     CallErrorReason.NO_ANSWER -> {
                         _uiState.update { it.copy(callMessage = "Sin respuesta") }
                     }
+
                     CallErrorReason.REJECTED -> {
                         _uiState.update { it.copy(callMessage = "Llamada rechazada") }
                     }
+
                     CallErrorReason.NETWORK_ERROR -> {
                         _uiState.update { it.copy(callMessage = "Error de red") }
                     }
+
                     else -> {
                         _uiState.update { it.copy(callMessage = "Error desconocido") }
                     }
                 }
             }
+
             CallState.OUTGOING_RINGING -> {
                 // Iniciar sonido de ringback si es necesario
                 Log.d("SipViewModel", "Call is ringing - could start ringback tone")
             }
+
             CallState.STREAMS_RUNNING -> {
                 // Audio está fluyendo - actualizar UI
                 Log.d("SipViewModel", "Audio streams are running")
             }
+
             else -> {}
         }
     }
@@ -610,18 +655,22 @@ class SipViewModel(
 
     fun onPermissionsDenied() {
         _permissionsGranted.value = false
-        _uiState.update { it.copy(
-            registrationMessage = "Permissions required for SIP functionality"
-        )}
+        _uiState.update {
+            it.copy(
+                registrationMessage = "Permissions required for SIP functionality"
+            )
+        }
     }
 
     fun registerAccount(username: String, password: String, domain: String, pushToken: String) {
         viewModelScope.launch {
             try {
-                _uiState.update { it.copy(
-                    registrationMessage = "Registering...",
-                    isRegistering = true
-                )}
+                _uiState.update {
+                    it.copy(
+                        registrationMessage = "Registering...",
+                        isRegistering = true
+                    )
+                }
 
                 sipLibrary.registerAccount(
                     username = username,
@@ -630,16 +679,20 @@ class SipViewModel(
                     pushToken = pushToken.ifEmpty { null }
                 )
 
-                _uiState.update { it.copy(
-                    registeredUsername = username,
-                    registeredDomain = domain,
-                    isRegistering = false
-                )}
+                _uiState.update {
+                    it.copy(
+                        registeredUsername = username,
+                        registeredDomain = domain,
+                        isRegistering = false
+                    )
+                }
             } catch (e: Exception) {
-                _uiState.update { it.copy(
-                    registrationMessage = "Registration failed: ${e.message}",
-                    isRegistering = false
-                )}
+                _uiState.update {
+                    it.copy(
+                        registrationMessage = "Registration failed: ${e.message}",
+                        isRegistering = false
+                    )
+                }
             }
         }
     }
@@ -648,13 +701,17 @@ class SipViewModel(
         viewModelScope.launch {
             try {
                 sipLibrary.makeCall(phoneNumber)
-                _uiState.update { it.copy(
-                    dialedNumber = phoneNumber
-                )}
+                _uiState.update {
+                    it.copy(
+                        dialedNumber = phoneNumber
+                    )
+                }
             } catch (e: Exception) {
-                _uiState.update { it.copy(
-                    callMessage = "Failed to make call: ${e.message}"
-                )}
+                _uiState.update {
+                    it.copy(
+                        callMessage = "Failed to make call: ${e.message}"
+                    )
+                }
             }
         }
     }
@@ -662,6 +719,8 @@ class SipViewModel(
     fun acceptCall() {
         viewModelScope.launch {
             sipLibrary.acceptCall()
+//            sipLibrary.enableAudioTranslation(
+//            )
         }
     }
 
@@ -698,9 +757,11 @@ class SipViewModel(
     fun sendDtmf(digit: Char) {
         viewModelScope.launch {
             val success = sipLibrary.sendDtmf(digit)
-            _uiState.update { it.copy(
-                callMessage = if (success) "DTMF sent: $digit" else "Failed to send DTMF: $digit"
-            )}
+            _uiState.update {
+                it.copy(
+                    callMessage = if (success) "DTMF sent: $digit" else "Failed to send DTMF: $digit"
+                )
+            }
         }
     }
 

@@ -259,8 +259,7 @@ class SipViewModel(
 
                     CallState.CONNECTED -> {
                         _uiState.update { it.copy(callMessage = "Conectado") }
-                        sipLibrary.enableAudioTranslation(
-                            apiKey =  )
+
                     }
 
                     CallState.STREAMS_RUNNING -> {

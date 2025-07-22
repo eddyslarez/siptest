@@ -74,7 +74,7 @@ class SipTestApplication : Application() {
             enableLogs = true,
             enableAutoReconnect = true,
             pingIntervalMs = 30000L,
-            openAIApiKey="",
+            openAIApiKey="sk-proj-g9hb9",
             defaultTargetLanguage = "es",
             enableAutoTranslation = true,
             translationQuality= WebRtcManager.TranslationQuality.HIGH

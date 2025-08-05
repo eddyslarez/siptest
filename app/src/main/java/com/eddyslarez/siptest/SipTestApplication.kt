@@ -1,6 +1,7 @@
 package com.eddyslarez.siptest
-
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import com.eddyslarez.siplibrary.EddysSipLibrary
 import com.eddyslarez.siplibrary.data.models.RegistrationState
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +11,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import android.util.Log
+import com.eddyslarez.siplibrary.data.models.PushMode
+import com.eddyslarez.siplibrary.data.models.PushModeConfig
+import com.eddyslarez.siplibrary.data.models.PushModeStrategy
 
 class SipTestApplication : Application() {
 
@@ -17,7 +21,7 @@ class SipTestApplication : Application() {
 
     private val sipAccounts = listOf(
         SipAccount("90544000", "qsulxIRyGiajP664", "sip.spb.mcn.ru"),
-//        SipAccount("9054607", "GK94phfudf0Eq", "sip.f.cru")
+        SipAccount("90544008", "9yeWXimVD1ABErCs", "sip.mcn.ru")
     )
 
     private var currentAccountIndex = 0
@@ -28,33 +32,114 @@ class SipTestApplication : Application() {
         private const val TAG = "CuentasRegistro"
     }
 
+
     override fun onCreate() {
         super.onCreate()
 
-        // Inicializar la biblioteca SIP
+        // Inicializar la biblioteca SIP con configuración de Push Mode
         initializeSipLibrary()
 
-        // Configurar el listener para manejar estados de registro
+        // Configurar listeners
         setupRegistrationListener()
+        setupPushModeListener() // ✅ NUEVO
+
+        // Configurar lifecycle observer para Push Mode automático
+        setupAppLifecycleObserver() // ✅ NUEVO
 
         // Iniciar el registro secuencial
         startSequentialRegistration()
     }
 
     private fun initializeSipLibrary() {
+        // ✅ CONFIGURACIÓN MEJORADA CON PUSH MODE
+        val pushModeConfig = PushModeConfig(
+            strategy = PushModeStrategy.AUTOMATIC, // ✅ Modo automático
+            autoTransitionDelay = 5000L, // 5 segundos para cambiar a push
+            forceReregisterOnIncomingCall = true,
+            returnToPushAfterCallEnd = true,
+            enablePushNotifications = true
+        )
+
         val config = EddysSipLibrary.SipConfig(
             defaultDomain = "mcn.ru",
             webSocketUrl = "wss://webrtc.mcn.ru:35060/",
             userAgent = "SipTestApp/1.0",
             enableLogs = true,
             enableAutoReconnect = true,
-            pingIntervalMs = 30000L
+            pingIntervalMs = 30000L,
+            pushModeConfig = pushModeConfig // ✅ Agregar configuración push
         )
 
         sipLibrary.initialize(
             application = this,
             config = config
         )
+    }
+    // ✅ NUEVO: Listener para cambios de Push Mode
+    private fun setupPushModeListener() {
+        // Observar cambios de push mode
+        CoroutineScope(Dispatchers.Main).launch {
+            sipLibrary.getPushModeStateFlow().collect { pushState ->
+                Log.i(TAG, "🔄 Push Mode cambió: ${pushState.currentMode} (${pushState.reason})")
+
+                when (pushState.currentMode) {
+                    PushMode.PUSH -> {
+                        Log.i(TAG, "📱 Aplicación en modo PUSH - ${pushState.accountsInPushMode.size} cuentas")
+                    }
+                    PushMode.FOREGROUND -> {
+                        Log.i(TAG, "🖥️ Aplicación en modo FOREGROUND")
+                    }
+                    PushMode.TRANSITIONING -> {
+                        Log.i(TAG, "⏳ Transicionando entre modos...")
+                    }
+                }
+            }
+        }
+    }
+
+    // ✅ NUEVO: Observer del lifecycle de la aplicación
+    private fun setupAppLifecycleObserver() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var activityCount = 0
+
+            override fun onActivityStarted(activity: Activity) {
+                activityCount++
+                if (activityCount == 1) {
+                    // App pasó a foreground
+                    Log.d(TAG, "🖥️ App pasó a FOREGROUND")
+                    onAppForegrounded()
+                }
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                activityCount--
+                if (activityCount == 0) {
+                    // App pasó a background
+                    Log.d(TAG, "📱 App pasó a BACKGROUND")
+                    onAppBackgrounded()
+                }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
+    }
+
+    // ✅ NUEVO: Manejar cuando la app pasa a background
+    private fun onAppBackgrounded() {
+        // El PushModeManager automáticamente manejará la transición a push mode
+        // después del delay configurado (5 segundos)
+        Log.i(TAG, "📱 App en background - Push Mode Manager iniciará transición automática")
+    }
+
+    // ✅ NUEVO: Manejar cuando la app pasa a foreground
+    private fun onAppForegrounded() {
+        // El PushModeManager automáticamente cancelará cualquier transición pendiente
+        // y cambiará a foreground mode
+        Log.i(TAG, "🖥️ App en foreground - Push Mode Manager cancelará transición a push")
     }
 
     private fun setupRegistrationListener() {
@@ -121,7 +206,8 @@ class SipTestApplication : Application() {
                 sipLibrary.registerAccount(
                     username = account.username,
                     password = account.password,
-                    domain = account.domain
+                    domain = account.domain,
+                    pushToken = "dwc1dQ2MRQSNO1LbtbCIqq:APA91bEsrnnfmbpMwc2zfoXm9_WpsO2T9Yak6WIULLnx3BBhaHXP56514n4VFsOR_2nJ6b0IN_lt421vioIRZAXtwX6i2nzOEdvTAJzpOPljFm217d-y2WA"
                 )
 
                 // Esperar con timeout

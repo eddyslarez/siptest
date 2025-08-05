@@ -1,5 +1,6 @@
 package com.eddyslarez.siptest.viewmodel
 
+
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -8,6 +9,8 @@ import com.eddyslarez.siplibrary.EddysSipLibrary
 import com.eddyslarez.siplibrary.data.models.CallErrorReason
 import com.eddyslarez.siplibrary.data.models.CallState
 import com.eddyslarez.siplibrary.data.models.CallStateInfo
+import com.eddyslarez.siplibrary.data.models.PushMode
+import com.eddyslarez.siplibrary.data.models.PushModeState
 import com.eddyslarez.siplibrary.data.models.RegistrationState
 import com.eddyslarez.siplibrary.data.models.SipErrorMapper
 import kotlinx.coroutines.Job
@@ -41,6 +44,17 @@ class SipViewModel(
     val registrationStates: StateFlow<Map<String, RegistrationState>> = sipLibrary.getRegistrationStatesFlow()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
+
+    // ✅ NUEVO: Estados de Push Mode
+    val pushModeState: StateFlow<PushModeState> = sipLibrary.getPushModeStateFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly,
+            PushModeState(
+                currentMode = PushMode.FOREGROUND,
+                previousMode = null,
+                timestamp = System.currentTimeMillis(),
+                reason = "Initial state"
+            )
+        )
     // Historial de estados para debugging
     val callStateHistory: StateFlow<List<CallStateInfo>> = sipLibrary.getCallStateFlow()
         .map { currentState ->
@@ -51,8 +65,26 @@ class SipViewModel(
     init {
         setupSipListeners()
         observeCallStates()
-        observeRegistrationStates()   // ⬅️ nuevo
+        observeRegistrationStates()
+        observePushModeStates() // ✅ NUEVO
 
+
+    }
+
+    /** ✅ NUEVO: Observar cambios de modo push */
+    private fun observePushModeStates() = viewModelScope.launch {
+        pushModeState.collect { pushState ->
+            Log.d("SipViewModel", "Push mode changed: ${pushState.currentMode} (${pushState.reason})")
+
+            _uiState.update { currentUiState ->
+                currentUiState.copy(
+                    pushModeStatus = "Push Mode: ${pushState.currentMode.name}",
+                    pushModeReason = pushState.reason,
+                    isInPushMode = pushState.currentMode == PushMode.PUSH,
+                    accountsInPushMode = pushState.accountsInPushMode.size
+                )
+            }
+        }
     }
     /** Actualiza _registrationState cuando lleguen cambios de la librería. */
     private fun observeRegistrationStates() = viewModelScope.launch {
@@ -60,6 +92,39 @@ class SipViewModel(
             // Si ya sabemos qué usuario/dominio está usando la UI, úsalo:
             val key = "${_uiState.value.registeredUsername}@${_uiState.value.registeredDomain}"
             _registrationState.value = allStates[key] ?: RegistrationState.NONE
+        }
+    }
+
+    /**
+     * Cambia manualmente a modo push
+     */
+    fun switchToPushMode() {
+        viewModelScope.launch {
+            try {
+                sipLibrary.switchToPushMode()
+                Log.d("SipViewModel", "Switched to push mode manually")
+            } catch (e: Exception) {
+                Log.e("SipViewModel", "Error switching to push mode: ${e.message}")
+                _uiState.update {
+                    it.copy(callMessage = "Error switching to push mode: ${e.message}")
+                }
+            }
+        }
+    }
+    /**
+     * Cambia manualmente a modo foreground
+     */
+    fun switchToForegroundMode() {
+        viewModelScope.launch {
+            try {
+                sipLibrary.switchToForegroundMode()
+                Log.d("SipViewModel", "Switched to foreground mode manually")
+            } catch (e: Exception) {
+                Log.e("SipViewModel", "Error switching to foreground mode: ${e.message}")
+                _uiState.update {
+                    it.copy(callMessage = "Error switching to foreground mode: ${e.message}")
+                }
+            }
         }
     }
     private fun setupSipListeners() {
@@ -76,7 +141,6 @@ class SipViewModel(
                 }
             }
 
-            // OPTIMIZADO: Listener unificado para estados de llamada
             override fun onCallStateChanged(stateInfo: CallStateInfo) {
                 Log.d("SipListener", "onCallStateChanged: ${stateInfo.state.name}")
 
@@ -91,7 +155,6 @@ class SipViewModel(
                     )
                 }
 
-                // Manejar estados específicos
                 handleStateChange(stateInfo)
             }
 
@@ -257,6 +320,59 @@ class SipViewModel(
         })
     }
 
+    /**
+     * Simula que se recibió una notificación push (para testing)
+     */
+    fun simulatePushNotificationReceived() {
+        viewModelScope.launch {
+            try {
+                sipLibrary.onPushNotificationReceived()
+                Log.d("SipViewModel", "Simulated push notification received")
+            } catch (e: Exception) {
+                Log.e("SipViewModel", "Error simulating push notification: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Actualiza el token push
+     */
+    fun updatePushToken(token: String, provider: String = "fcm") {
+        viewModelScope.launch {
+            try {
+                sipLibrary.updatePushToken(token, provider)
+                Log.d("SipViewModel", "Push token updated successfully")
+                _uiState.update {
+                    it.copy(registrationMessage = "Push token updated")
+                }
+            } catch (e: Exception) {
+                Log.e("SipViewModel", "Error updating push token: ${e.message}")
+                _uiState.update {
+                    it.copy(registrationMessage = "Error updating push token: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Obtiene información de diagnóstico del push mode
+     */
+    fun getPushModeDiagnostic(): String {
+        return buildString {
+            val currentState = pushModeState.value
+            appendLine("=== PUSH MODE DIAGNOSTIC ===")
+            appendLine("Current Mode: ${currentState.currentMode}")
+            appendLine("Previous Mode: ${currentState.previousMode}")
+            appendLine("Reason: ${currentState.reason}")
+            appendLine("Timestamp: ${currentState.timestamp}")
+            appendLine("Accounts in Push: ${currentState.accountsInPushMode.size}")
+            appendLine("Was in Push Before Call: ${currentState.wasInPushBeforeCall}")
+
+            appendLine("\n--- Library Push State ---")
+            appendLine("Is in Push Mode: ${sipLibrary.isInPushMode()}")
+            appendLine("Current Push Mode: ${sipLibrary.getCurrentPushMode()}")
+        }
+    }
     // OPTIMIZADO: Observar estados unificados para lógica adicional
     private fun observeCallStates() {
         viewModelScope.launch {
@@ -540,7 +656,13 @@ data class SipUiState(
     val hasCallError: Boolean = false,
     val errorReason: String? = null,
     val multiAccountStatus: String = "No accounts",
-    val allAccountsRegistered: Boolean = false
+    val allAccountsRegistered: Boolean = false,
+
+    // ✅ NUEVOS CAMPOS PARA PUSH MODE
+    val pushModeStatus: String = "Push Mode: FOREGROUND",
+    val pushModeReason: String = "Initial state",
+    val isInPushMode: Boolean = false,
+    val accountsInPushMode: Int = 0
 )
 
 // OPTIMIZADO: Extension functions para estados
@@ -556,6 +678,7 @@ fun CallState.isCallActive(): Boolean {
         CallState.PAUSED,
         CallState.RESUMING
     )
+
 }
 
 fun CallState.getDisplayText(): String {

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "442721264809",
+    "project_id": "siptest-57177",
+    "storage_bucket": "siptest-57177.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:442721264809:android:e3c43b3196e9a07b9e35b8",
+        "android_client_info": {
+          "package_name": "com.eddyslarez.siptest"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBO2lJPhpO2Cdo91W0gqDILeyGEeXwyt-o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

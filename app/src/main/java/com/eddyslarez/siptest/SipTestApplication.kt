@@ -1,4 +1,5 @@
 package com.eddyslarez.siptest
+
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
@@ -14,13 +15,16 @@ import android.util.Log
 import com.eddyslarez.siplibrary.data.models.PushMode
 import com.eddyslarez.siplibrary.data.models.PushModeConfig
 import com.eddyslarez.siplibrary.data.models.PushModeStrategy
+import com.google.android.gms.tasks.OnCompleteListener
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.tasks.await
 
 class SipTestApplication : Application() {
 
     val sipLibrary by lazy { EddysSipLibrary.getInstance() }
 
     private val sipAccounts = listOf(
-        SipAccount("90544000", "qsulxIRyGiajP664", "sip.spb.mcn.ru"),
+//        SipAccount("90544000", "qsulxIRyGiajP664", "sip.spb.mcn.ru"),
         SipAccount("90544008", "9yeWXimVD1ABErCs", "sip.mcn.ru")
     )
 
@@ -30,6 +34,7 @@ class SipTestApplication : Application() {
 
     companion object {
         private const val TAG = "CuentasRegistro"
+        private const val TAG1 = "CuentasRPush"
     }
 
 
@@ -50,11 +55,25 @@ class SipTestApplication : Application() {
         startSequentialRegistration()
     }
 
+    fun getToken(onTokenReceived: (String?) -> Unit) {
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.w("FCM", "Fetching FCM registration token failed", task.exception)
+                onTokenReceived(null)
+                return@addOnCompleteListener
+            }
+
+            // Token obtenido correctamente
+            val token = task.result
+            onTokenReceived(token)
+        }
+    }
+
     private fun initializeSipLibrary() {
-        // ✅ CONFIGURACIÓN MEJORADA CON PUSH MODE
+
         val pushModeConfig = PushModeConfig(
-            strategy = PushModeStrategy.AUTOMATIC, // ✅ Modo automático
-            autoTransitionDelay = 5000L, // 5 segundos para cambiar a push
+            strategy = PushModeStrategy.AUTOMATIC,
+            autoTransitionDelay = 5000L,
             forceReregisterOnIncomingCall = true,
             returnToPushAfterCallEnd = true,
             enablePushNotifications = true
@@ -67,30 +86,37 @@ class SipTestApplication : Application() {
             enableLogs = true,
             enableAutoReconnect = true,
             pingIntervalMs = 30000L,
-            pushModeConfig = pushModeConfig // ✅ Agregar configuración push
+            pushModeConfig = pushModeConfig
         )
 
         sipLibrary.initialize(
             application = this,
-            config = config
+            config = config,
+            enableDatabase = true
         )
     }
-    // ✅ NUEVO: Listener para cambios de Push Mode
+
     private fun setupPushModeListener() {
-        // Observar cambios de push mode
+
         CoroutineScope(Dispatchers.Main).launch {
             sipLibrary.getPushModeStateFlow().collect { pushState ->
                 Log.i(TAG, "🔄 Push Mode cambió: ${pushState.currentMode} (${pushState.reason})")
 
                 when (pushState.currentMode) {
                     PushMode.PUSH -> {
-                        Log.i(TAG, "📱 Aplicación en modo PUSH - ${pushState.accountsInPushMode.size} cuentas")
+                        Log.i(
+                            TAG1,
+                            "📱 Aplicación en modo PUSH - ${pushState.accountsInPushMode.size} cuentas"
+                        )
+
                     }
+
                     PushMode.FOREGROUND -> {
-                        Log.i(TAG, "🖥️ Aplicación en modo FOREGROUND")
+                        Log.i(TAG1, "🖥️ Aplicación en modo FOREGROUND")
                     }
+
                     PushMode.TRANSITIONING -> {
-                        Log.i(TAG, "⏳ Transicionando entre modos...")
+                        Log.i(TAG1, "⏳ Transicionando entre modos...")
                     }
                 }
             }
@@ -194,7 +220,10 @@ class SipTestApplication : Application() {
             return
         }
 
-        Log.i(TAG, "🔄 Registrando cuenta ${currentAccountIndex + 1}/${sipAccounts.size}: ${account.username}@${account.domain}")
+        Log.i(
+            TAG,
+            "🔄 Registrando cuenta ${currentAccountIndex + 1}/${sipAccounts.size}: ${account.username}@${account.domain}"
+        )
 
         // Cancelar job anterior si existe
         registrationJob?.cancel()
@@ -202,12 +231,20 @@ class SipTestApplication : Application() {
         // Crear nuevo job con timeout
         registrationJob = CoroutineScope(Dispatchers.Main).launch {
             try {
-                // Registrar la cuenta
+                // Obtener token FCM
+                val pushToken = getFirebaseToken()
+                if (pushToken == null) {
+                    Log.e(TAG, "❌ No se pudo obtener el token FCM. Saltando registro.")
+                    proceedToNextAccount()
+                    return@launch
+                }
+
+                // Registrar la cuenta con el token
                 sipLibrary.registerAccount(
                     username = account.username,
                     password = account.password,
                     domain = account.domain,
-                    pushToken = "dwc1dQ2MRQSNO1LbtbCIqq:APA91bEsrnnfmbpMwc2zfoXm9_WpsO2T9Yak6WIULLnx3BBhaHXP56514n4VFsOR_2nJ6b0IN_lt421vioIRZAXtwX6i2nzOEdvTAJzpOPljFm217d-y2WA"
+                    pushToken = pushToken
                 )
 
                 // Esperar con timeout
@@ -221,9 +258,22 @@ class SipTestApplication : Application() {
                 // Job cancelado, normal
                 Log.d(TAG, "🚫 Registro cancelado para ${account.username}@${account.domain}")
             } catch (e: Exception) {
-                Log.e(TAG, "💥 Error registrando ${account.username}@${account.domain}: ${e.message}")
+                Log.e(
+                    TAG,
+                    "💥 Error registrando ${account.username}@${account.domain}: ${e.message}"
+                )
                 proceedToNextAccount()
             }
+        }
+    }
+
+
+    suspend fun getFirebaseToken(): String? {
+        return try {
+            FirebaseMessaging.getInstance().token.await()
+        } catch (e: Exception) {
+            Log.e("FCM", "Error al obtener el token FCM", e)
+            null
         }
     }
 

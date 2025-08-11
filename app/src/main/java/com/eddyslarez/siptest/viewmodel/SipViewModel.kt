@@ -128,6 +128,53 @@ class SipViewModel(
         }
     }
     private fun setupSipListeners() {
+
+        // Listener para estado de red
+        sipLibrary.setNetworkStatusListener(object : EddysSipLibrary.NetworkStatusListener {
+            override fun onNetworkConnected(networkType: String, hasInternet: Boolean) {
+
+                Log.d("SipListener", "Red conectada: $networkType (Internet: $hasInternet)")
+
+            }
+
+            override fun onNetworkDisconnected() {
+                Log.d("SipListener", "Red desconectada")
+
+            }
+
+            override fun onNetworkChanged(oldNetworkType: String, newNetworkType: String) {
+                Log.d("SipListener", "Red cambió: $oldNetworkType → $newNetworkType")
+
+            }
+
+            override fun onInternetConnectivityChanged(hasInternet: Boolean) {
+                Log.d("SipListener", "Conectividad internet: $hasInternet")
+
+            }
+        })
+
+        // Listener para reconexión automática
+        sipLibrary.setAutoReconnectionListener(object : EddysSipLibrary.AutoReconnectionListener {
+            override fun onReconnectionStarted(accountKey: String, reason: String) {
+                Log.d("SipListener", "Iniciando reconexión para $accountKey: $reason")
+
+            }
+
+            override fun onReconnectionSuccess(accountKey: String, attempts: Int) {
+                Log.d("SipListener", "Reconexión exitosa para $accountKey (intentos: $attempts)")
+
+            }
+
+            override fun onReconnectionFailed(accountKey: String, attempts: Int, error: String) {
+                Log.d("SipListener","Reconexión fallida para $accountKey: $error")
+
+            }
+
+            override fun onReconnectionProgress(accountKey: String, attempt: Int, maxAttempts: Int) {
+                Log.d("SipListener", "Reconectando $accountKey: $attempt/$maxAttempts")
+
+            }
+        })
         // Listener principal para eventos SIP
         sipLibrary.addSipEventListener(object : EddysSipLibrary.SipEventListener {
             override fun onRegistrationStateChanged(state: RegistrationState, username: String, domain: String) {

@@ -23,4 +23,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "siptest"
 include(":app")
- 
+includeBuild("C:\\Users\\Eddys Larez\\Desktop\\libreria")

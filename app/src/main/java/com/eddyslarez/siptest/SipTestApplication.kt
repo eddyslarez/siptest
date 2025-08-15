@@ -24,8 +24,8 @@ class SipTestApplication : Application() {
     val sipLibrary by lazy { EddysSipLibrary.getInstance() }
 
     private val sipAccounts = listOf(
-//        SipAccount("90544000", "qsulxIRyGiajP664", "sip.spb.mcn.ru"),
-        SipAccount("90544008", "9yeWXimVD1ABErCs", "sip.mcn.ru")
+        SipAccount("90544000", "qsulGiajP664", "sip.spbf.mcn.ru"),
+//        SipAccount("90544008", "9yeWXimVD1ABErCs", "sip.mcn.ru")
     )
 
     private var currentAccountIndex = 0
@@ -34,7 +34,6 @@ class SipTestApplication : Application() {
 
     companion object {
         private const val TAG = "CuentasRegistro"
-        private const val TAG1 = "CuentasRPush"
     }
 
 
@@ -55,25 +54,11 @@ class SipTestApplication : Application() {
         startSequentialRegistration()
     }
 
-    fun getToken(onTokenReceived: (String?) -> Unit) {
-        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-            if (!task.isSuccessful) {
-                Log.w("FCM", "Fetching FCM registration token failed", task.exception)
-                onTokenReceived(null)
-                return@addOnCompleteListener
-            }
-
-            // Token obtenido correctamente
-            val token = task.result
-            onTokenReceived(token)
-        }
-    }
-
     private fun initializeSipLibrary() {
-
+        // ✅ CONFIGURACIÓN MEJORADA CON PUSH MODE
         val pushModeConfig = PushModeConfig(
-            strategy = PushModeStrategy.AUTOMATIC,
-            autoTransitionDelay = 5000L,
+            strategy = PushModeStrategy.AUTOMATIC, // ✅ Modo automático
+            autoTransitionDelay = 5000L, // 5 segundos para cambiar a push
             forceReregisterOnIncomingCall = true,
             returnToPushAfterCallEnd = true,
             enablePushNotifications = true
@@ -86,18 +71,27 @@ class SipTestApplication : Application() {
             enableLogs = true,
             enableAutoReconnect = true,
             pingIntervalMs = 30000L,
-            pushModeConfig = pushModeConfig
+            openAiApiKey = "sk-proj-",
+            pushModeConfig = pushModeConfig // ✅ Agregar configuración push
         )
+
 
         sipLibrary.initialize(
             application = this,
             config = config,
             enableDatabase = true
         )
+
+//        sipLibrary.configureTranslation(
+//            languagePair = LanguagePair.SPANISH_ENGLISH,
+//            voice = "alloy"
+//        )
+
     }
 
+    // ✅ NUEVO: Listener para cambios de Push Mode
     private fun setupPushModeListener() {
-
+        // Observar cambios de push mode
         CoroutineScope(Dispatchers.Main).launch {
             sipLibrary.getPushModeStateFlow().collect { pushState ->
                 Log.i(TAG, "🔄 Push Mode cambió: ${pushState.currentMode} (${pushState.reason})")
@@ -105,18 +99,17 @@ class SipTestApplication : Application() {
                 when (pushState.currentMode) {
                     PushMode.PUSH -> {
                         Log.i(
-                            TAG1,
+                            TAG,
                             "📱 Aplicación en modo PUSH - ${pushState.accountsInPushMode.size} cuentas"
                         )
-
                     }
 
                     PushMode.FOREGROUND -> {
-                        Log.i(TAG1, "🖥️ Aplicación en modo FOREGROUND")
+                        Log.i(TAG, "🖥️ Aplicación en modo FOREGROUND")
                     }
 
                     PushMode.TRANSITIONING -> {
-                        Log.i(TAG1, "⏳ Transicionando entre modos...")
+                        Log.i(TAG, "⏳ Transicionando entre modos...")
                     }
                 }
             }
@@ -231,20 +224,12 @@ class SipTestApplication : Application() {
         // Crear nuevo job con timeout
         registrationJob = CoroutineScope(Dispatchers.Main).launch {
             try {
-                // Obtener token FCM
-                val pushToken = getFirebaseToken()
-                if (pushToken == null) {
-                    Log.e(TAG, "❌ No se pudo obtener el token FCM. Saltando registro.")
-                    proceedToNextAccount()
-                    return@launch
-                }
-
-                // Registrar la cuenta con el token
+                // Registrar la cuenta
                 sipLibrary.registerAccount(
                     username = account.username,
                     password = account.password,
                     domain = account.domain,
-                    pushToken = pushToken
+                    pushToken = "dwc1dQ2MRQSNO1LbtbCIqq:APA91bEsrnnfmbpMwc2zfoXm9_WpsO2T9Yak6WIULLnx3BBhaHXP56514n4VFsOR_2nJ6b0IN_lt421vioIRZAXtwX6i2nzOEdvTAJzpOPljFm217d-y2WA"
                 )
 
                 // Esperar con timeout
@@ -264,16 +249,6 @@ class SipTestApplication : Application() {
                 )
                 proceedToNextAccount()
             }
-        }
-    }
-
-
-    suspend fun getFirebaseToken(): String? {
-        return try {
-            FirebaseMessaging.getInstance().token.await()
-        } catch (e: Exception) {
-            Log.e("FCM", "Error al obtener el token FCM", e)
-            null
         }
     }
 

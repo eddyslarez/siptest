@@ -622,6 +622,7 @@ class SipViewModel(
     }
 
     fun acceptCall() {
+        sipLibrary.setOpenAIEnabled( true)
         viewModelScope.launch {
             sipLibrary.acceptCall()
         }

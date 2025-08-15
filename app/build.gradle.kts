@@ -62,7 +62,9 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    implementation(libs.sip.library.larez)
+//    implementation(libs.sip.library.larez)
+    implementation("com.eddyslarez:siplibrary:1.0.0")
+
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.bom)
 }
